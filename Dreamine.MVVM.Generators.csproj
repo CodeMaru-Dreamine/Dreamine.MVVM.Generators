@@ -14,7 +14,7 @@
     <IntermediateOutputPath>$(BaseIntermediateOutputPath)AnalyzerBuild\</IntermediateOutputPath>
 
     <PackageId>Dreamine.MVVM.Generators</PackageId>
-    <Version>1.0.0</Version>
+    <Version>1.0.1</Version>
     <Authors>Dreamine Core Team</Authors>
     <Company>Dreamine</Company>
     <Description>Dreamine MVVM 프레임워크에서 사용하는 Source Generator 모듈입니다.</Description>
@@ -24,6 +24,7 @@
     <Title>Dreamine MVVM Generators</Title>
     <Copyright>© 2025 Dreamine</Copyright>
     <PackageIcon>icon.png</PackageIcon>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
   <ItemGroup>
@@ -37,6 +38,10 @@
   <ItemGroup>
     <None Remove="D:\Work\2. Work\Dreamine\Dreamine\Library\Dreamine.MVVM.Generators\bin\Debug\netstandard2.0\Dreamine.MVVM.Generators.dll" />
 	 <None Include="$(TargetDir)\$(TargetName).dll" Pack="true" PackagePath="analyzers/dotnet/cs" />
+	 <None Include="..\..\..\Document\README.md">
+	   <Pack>True</Pack>
+	   <PackagePath>\</PackagePath>
+	 </None>
   </ItemGroup>
 
   <ItemGroup>
