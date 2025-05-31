@@ -14,7 +14,7 @@
     <IntermediateOutputPath>$(BaseIntermediateOutputPath)AnalyzerBuild\</IntermediateOutputPath>
 
     <PackageId>Dreamine.MVVM.Generators</PackageId>
-    <Version>1.0.2</Version>
+    <Version>1.0.3</Version>
     <Authors>Dreamine Core Team</Authors>
     <Company>Dreamine</Company>
     <Description>Dreamine MVVM 프레임워크에서 사용하는 Source Generator 모듈입니다.</Description>
