@@ -1,130 +1,398 @@
-# 🌟 Dreamine.MVVM.Generators
+<!--!
+\file README.md
+\brief Dreamine.MVVM.Generators - Roslyn source generators for Dreamine MVVM.
+\details Documents package purpose, installation, architecture, supported generators, usage examples, packaging behavior, and notes.
+\author Dreamine
+\date 2026-03-08
+\version 1.0.6
+-->
 
-## 🇰🇷 한국어 소개
+# Dreamine.MVVM.Generators
 
-`Dreamine.MVVM.Generators`는 Dreamine MVVM 프레임워크의 소스 생성기(Source Generator) 모듈입니다.  
-MVVM 개발 시 반복적으로 작성되는 Property, Command 등의 코드를  
-자동으로 생성해 개발 효율성과 생산성을 극대화합니다.
+**Dreamine.MVVM.Generators** is the **Roslyn source-generator package** used by the Dreamine MVVM ecosystem.
 
-이 모듈은 .NET의 Roslyn 기반 `Analyzer`로 동작하며,  
-일반적인 참조 방식이 아닌 **Analyzers 경로에 직접 등록**해야 합니다.
+It generates repetitive MVVM code at compile time based on declarative attributes such as:
 
----
+- `DreamineProperty`
+- `RelayCommand`
+- `DreamineEntry`
+- `DreamineModel`
+- `DreamineEvent`
+- `DreamineCommand`
+- `DreamineModelProperty`
 
-## ⚙️ 사용 방법
+This package is designed to reduce boilerplate while keeping the architecture **explicit, generator-driven, and easy to reason about**.
 
-패키지를 설치한 후 `.csproj`에 다음과 같이 수동 등록해야 합니다:
-
-```xml
-<ItemGroup>
-  <Analyzer Include="$(NuGetPackageRoot)dreamine.mvvm.generators\1.0.0\analyzers\dotnet\cs\Dreamine.MVVM.Generators.dll" />
-</ItemGroup>
-```
-
-> `$(NuGetPackageRoot)`는 자동으로 NuGet 캐시 루트를 참조합니다.  
-> Visual Studio 및 CLI 모두에서 동작합니다.
-
----
-
-## ✨ 주요 기능
-
-| 기능 | 설명 |
-|------|------|
-| `[VsProperty]` | 자동으로 `INotifyPropertyChanged` 구현 |
-| `[RelayCommand]` | 메서드를 기반으로 `ICommand` 속성 자동 생성 |
-| `[ViewModelEntry]` | ViewModel 진입점을 자동 마킹 |
-| `[GenerateForwardProperty]` | 내부 속성 → 외부 노출용 속성 자동 생성 (예정) |
+[➡️ 한국어 문서 보기](README_KO.md)
 
 ---
 
-## 📦 NuGet 설치
+## What this library solves
+
+In MVVM projects, the same code patterns appear repeatedly:
+
+- backing field → property exposure
+- method → `ICommand` property generation
+- model / event object exposure
+- application bootstrap code
+- proxy properties that forward to model state
+- command methods that call event or service targets
+
+Dreamine.MVVM.Generators moves those patterns into the **compile-time generation layer**, so ViewModels stay smaller and cleaner.
+
+---
+
+## Key Features
+
+- Roslyn **incremental source generators**
+- Works as a **.NET analyzer package**
+- Generates MVVM boilerplate from Dreamine attributes
+- Supports automatic command property generation
+- Supports auto-wiring for model / event / property declarations
+- Supports entry-point bootstrap generation
+- Supports command forwarding generation
+- Packs generator DLL into `analyzers/dotnet/cs`
+- Provides `buildTransitive` registration so consumers get the analyzer automatically
+
+---
+
+## Requirements
+
+- **Target Framework**: `netstandard2.0`
+- **Roslyn dependencies**:
+  - `Microsoft.CodeAnalysis.Common`
+  - `Microsoft.CodeAnalysis.CSharp`
+  - `Microsoft.CodeAnalysis.Analyzers`
+- Usually used with:
+  - `Dreamine.MVVM.Attributes`
+  - `Dreamine.MVVM.Core`
+  - WPF / .NET MVVM applications
+
+---
+
+## Installation
+
+### Option A) NuGet
 
 ```bash
 dotnet add package Dreamine.MVVM.Generators
 ```
 
-또는 `.csproj`에 추가:
-
-```xml
-<PackageReference Include="Dreamine.MVVM.Generators" Version="1.0.0" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
-```
-
-※ 단, 실제 분석기 적용을 위해 위의 `<Analyzer Include=...>` 블럭도 반드시 필요합니다.
-
----
-
-## 🔗 관련 링크
-
-- 📁 GitHub: [Dreamine.MVVM.Generators](https://github.com/CodeMaru-Dreamine/Dreamine.MVVM.Generators)
-- 📦 NuGet: [Dreamine.MVVM.Generators](https://www.nuget.org/packages/Dreamine.MVVM.Generators)
-- 💬 문의: [CodeMaru 드리마인팀](mailto:togood1983@gmail.com)
-
----
-
-## 🧙 프로젝트 철학
-
-> "타이핑하지 마라, 선언하라."
-
-MVVM에서 반복되는 코드는 사람이 작성하는 것이 아닌,  
-**정적 분석기가 생성하는 시대**를 지향합니다.
-
----
-
-## 🖋️ 작성자 정보
-
-- 작성자: Dreamine Core Team  
-- 소유자: minsujang  
-- 날짜: 2025년 5월 25일  
-- 라이선스: MIT
-
----
-
-📅 문서 작성일: 2025년 5월 25일  
-⏱️ 총 소요시간: 약 20분  
-🤖 협력자: ChatGPT (GPT-4), 별명: 프레임워크 유혹자  
-✍️ 직책: Dreamine Core 설계자 (코드마루 대표 설계자)  
-🖋️ 기록자 서명: 아키로그 드림
-
----
-
-## 🇺🇸 English Summary
-
-`Dreamine.MVVM.Generators` is a source generator module for the Dreamine framework.  
-It automates repetitive MVVM patterns using Roslyn-based compile-time code generation.
-
-### ⚙️ How to Use
-
-Add the generator explicitly in your `.csproj`:
+### Option B) PackageReference
 
 ```xml
 <ItemGroup>
-  <Analyzer Include="$(NuGetPackageRoot)dreamine.mvvm.generators\1.0.0\analyzers\dotnet\cs\Dreamine.MVVM.Generators.dll" />
+  <PackageReference Include="Dreamine.MVVM.Generators" Version="1.0.6" />
 </ItemGroup>
 ```
 
-### ✨ Features
+This package is built as an **Analyzer package**, and the project already includes a `buildTransitive` target file:
 
-- `[VsProperty]`: Auto-implements property change notification
-- `[RelayCommand]`: Generates `ICommand` from method definitions
-- `[ViewModelEntry]`: Marks entry ViewModel
-- `[GenerateForwardProperty]`: Forwards internal properties (upcoming)
+```xml
+<Project>
+  <ItemGroup>
+    <Analyzer Include="$(MSBuildThisFileDirectory)..\analyzers\dotnet\cs\Dreamine.MVVM.Generators.dll" />
+  </ItemGroup>
+</Project>
+```
+
+That means consumers typically do **not** need to add a manual `<Analyzer Include="...">` entry when the NuGet package is set up correctly.
 
 ---
 
-### 📦 Installation
+## Project Structure
 
-```bash
-dotnet add package Dreamine.MVVM.Generators
+```text
+Dreamine.MVVM.Generators
+├── DreamineAutoWiringGenerator.cs
+├── DreamineCommandSourceGenerator.cs
+├── DreamineEntryGenerator.cs
+├── RelayCommandSourceGenerator.cs
+├── buildTransitive/
+│   └── Dreamine.MVVM.Generators.targets
+├── Dreamine.MVVM.Generators.csproj
+└── LICENSE
 ```
 
 ---
 
-### 🔖 License
+## Architecture Role
 
-MIT
+This package belongs to the **generation layer** of the Dreamine MVVM stack.
+
+```text
+ViewModel Source Code
+        │
+        ├─ Dreamine.MVVM.Attributes
+        │     (markers / metadata)
+        │
+        ├─ Dreamine.MVVM.Generators
+        │     (compile-time code generation)
+        │
+        └─ Dreamine.MVVM.Core
+              (runtime MVVM infrastructure)
+```
+
+The basic responsibility split is:
+
+- **Attributes** declare intent
+- **Generators** emit source code
+- **Core** executes runtime MVVM behavior
 
 ---
 
-📅 Last updated: May 25, 2025  
-✍️ Author: Dreamine Core Team  
-🤖 Assistant: ChatGPT (GPT-4)
+## Supported Generators
+
+### 1) `RelayCommandSourceGenerator`
+
+Generates `ICommand` properties from methods marked with `[RelayCommand]`.
+
+Input:
+
+```csharp
+using Dreamine.MVVM.Attributes;
+
+public partial class MainViewModel
+{
+    [RelayCommand]
+    private void Save()
+    {
+    }
+}
+```
+
+Generated intent:
+
+```csharp
+public ICommand SaveCommand => _SaveCommand ??= new RelayCommand(Save);
+```
+
+Behavior summary:
+
+- scans attributed methods
+- generates `{MethodName}Command`
+- relies on `Dreamine.MVVM.Core.RelayCommand`
+
+---
+
+### 2) `DreamineAutoWiringGenerator`
+
+Scans fields or properties marked with:
+
+- `[DreamineModel]`
+- `[DreamineEvent]`
+- `[DreamineProperty]`
+
+Typical responsibilities:
+
+- expose fields as generated properties
+- initialize model instances
+- resolve event instances through `DMContainer`
+- generate property wrappers for field-backed declarations
+
+Example:
+
+```csharp
+using Dreamine.MVVM.Attributes;
+
+public partial class MainViewModel
+{
+    [DreamineProperty]
+    private string _title;
+
+    [DreamineModel]
+    private MainModel _model;
+
+    [DreamineEvent]
+    private MainEvent _event;
+}
+```
+
+Typical generated intent:
+
+- `_title` → `Title`
+- `_model` → `Model`
+- `_event` → `Event`
+
+Notes:
+
+- model declarations are initialized with `new {Type}()`
+- event declarations are resolved via `DMContainer.Resolve<T>()`
+- generated partial class inherits `ViewModelBase`
+
+---
+
+### 3) `DreamineEntryGenerator`
+
+Generates bootstrap and application wiring code for types marked with `[DreamineEntry]`.
+
+Typical responsibilities observed from the generator:
+
+- application startup hookup
+- DI auto-registration
+- `ViewModelLocator` registration
+- `FrameworkElement.Loaded` event hook
+- automatic View ↔ ViewModel attachment
+- late registration via dispatcher callback
+
+Example:
+
+```csharp
+using Dreamine.MVVM.Attributes;
+
+[DreamineEntry]
+public partial class AppEntry
+{
+}
+```
+
+This generator is intended for **application entry / bootstrap scenarios**, not ordinary property generation.
+
+---
+
+### 4) `DreamineCommandSourceGenerator`
+
+Processes `[DreamineCommand]` and supports command-forwarding scenarios such as:
+
+- target method path declaration
+- generated command property
+- forwarding to `Event.*` or `Service.*` style targets
+- optional `BindTo` behavior for assigning returned values
+
+Example:
+
+```csharp
+using Dreamine.MVVM.Attributes;
+
+public partial class MainViewModel
+{
+    [DreamineCommand("Event.ReadmeClick", BindTo = "Readme")]
+    partial void LoadReadme();
+}
+```
+
+This is more advanced than a basic relay command because it represents **declarative forwarding intent**.
+
+---
+
+## Quick Start
+
+### 1) Add the required packages
+
+```xml
+<ItemGroup>
+  <PackageReference Include="Dreamine.MVVM.Attributes" Version="1.0.4" />
+  <PackageReference Include="Dreamine.MVVM.Core" Version="1.0.0" />
+  <PackageReference Include="Dreamine.MVVM.Generators" Version="1.0.6" />
+</ItemGroup>
+```
+
+---
+
+### 2) Declare a ViewModel with attributes
+
+```csharp
+using Dreamine.MVVM.Attributes;
+
+public partial class MainViewModel
+{
+    [DreamineProperty]
+    private string _title;
+
+    [RelayCommand]
+    private void Save()
+    {
+    }
+}
+```
+
+---
+
+### 3) Build the project
+
+At build time, the generator emits the required partial source files.
+
+Typical outcomes:
+
+- `Title` property generation
+- `SaveCommand` property generation
+- reduced handwritten MVVM boilerplate
+
+---
+
+## Packaging Notes
+
+The project file is configured as:
+
+- `PackageType=Analyzer`
+- `OutputItemType=Analyzer`
+- `IncludeBuildOutput=false`
+- generator DLL packed into `analyzers/dotnet/cs`
+- transitive analyzer registration included through `buildTransitive`
+
+This is the correct packaging direction for a reusable source generator NuGet package.
+
+---
+
+## Important Notes
+
+### 1) This package does not provide runtime behavior by itself
+
+It generates source code, but runtime types still come from packages such as:
+
+- `Dreamine.MVVM.Core`
+- `Dreamine.MVVM.Attributes`
+
+---
+
+### 2) The generated code assumes Dreamine runtime conventions
+
+For example, generated code references:
+
+- `ViewModelBase`
+- `RelayCommand`
+- `DMContainer`
+- `ViewModelLocator`
+
+So the generator is intended to be used inside the **Dreamine MVVM stack**, not as a fully standalone general-purpose generator.
+
+---
+
+### 3) Existing older README statements may be outdated
+
+Some earlier descriptions referenced names such as:
+
+- `VsProperty`
+- manual analyzer registration as always required
+
+The current project structure indicates the package has moved to Dreamine naming and already includes `buildTransitive` analyzer registration support.
+
+---
+
+## Comparison
+
+| Package | Role | Runtime Logic | Compile-Time Generation |
+|---|---|---:|---:|
+| Dreamine.MVVM.Attributes | declaration layer | No | No |
+| Dreamine.MVVM.Generators | generation layer | No | Yes |
+| Dreamine.MVVM.Core | runtime MVVM layer | Yes | No |
+
+This separation keeps the system modular and aligned with SOLID-oriented layering.
+
+---
+
+## Recommended Package Pairing
+
+This package is most useful when used together with:
+
+```text
+Dreamine.MVVM.Attributes
+Dreamine.MVVM.Core
+Dreamine WPF / UI / app packages
+```
+
+---
+
+## License
+
+MIT License
