@@ -29,17 +29,19 @@ namespace Dreamine.MVVM.Generators
 				.Select<Compilation, INamedTypeSymbol?>(static (c, _) =>
 					c.GetTypeByMetadataName("Dreamine.MVVM.Attributes.DreaminePropertyAttribute"));
 
-			var combinedSymbols = modelAttrSymbol
+            var combinedSymbols = modelAttrSymbol
 				.Combine(eventAttrSymbol)
 				.Combine(propAttrSymbol)
-				.Select<((INamedTypeSymbol?, INamedTypeSymbol?), INamedTypeSymbol?), (INamedTypeSymbol?, INamedTypeSymbol?, INamedTypeSymbol?)>(
+				.Select<
+					((INamedTypeSymbol?, INamedTypeSymbol?), INamedTypeSymbol?),
+					(INamedTypeSymbol? Model, INamedTypeSymbol? Event, INamedTypeSymbol? Property)>(
 					static (tuple, _) => (
 						Model: tuple.Item1.Item1,
 						Event: tuple.Item1.Item2,
 						Property: tuple.Item2
 					));
 
-			var candidates = context.SyntaxProvider
+            var candidates = context.SyntaxProvider
 				.CreateSyntaxProvider(
 					static (s, _) => s is PropertyDeclarationSyntax { AttributeLists.Count: > 0 }
 								  || s is FieldDeclarationSyntax { AttributeLists.Count: > 0 },
@@ -64,7 +66,7 @@ namespace Dreamine.MVVM.Generators
 			{
 				foreach (var classGroup in groups)
 				{
-					var classSymbol = (INamedTypeSymbol)classGroup.Key;
+					var classSymbol = (INamedTypeSymbol)classGroup.Key!;
 
 					foreach (var item in classGroup)
 					{
