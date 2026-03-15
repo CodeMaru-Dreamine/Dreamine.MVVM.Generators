@@ -165,6 +165,7 @@ namespace Dreamine.MVVM.Generators
             sb.AppendLine("#nullable enable");
             sb.AppendLine("using System.Windows.Input;");
             sb.AppendLine("using Dreamine.MVVM.Core;");
+            sb.AppendLine("using Dreamine.MVVM.ViewModels;");
             sb.AppendLine();
             sb.AppendLine($"namespace {ns}");
             sb.AppendLine("{");
