@@ -16,21 +16,24 @@
 		<EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
 
 		<PackageId>Dreamine.MVVM.Generators</PackageId>
-		<Version>1.0.6</Version>
+		<Version>1.0.7</Version>
 		<Authors>Dreamine Core Team</Authors>
 		<Company>Dreamine</Company>
-		<Description>Source generator module for the Dreamine MVVM framework.</Description>
-		<PackageTags>mvvm;dreamine;source-generator;roslyn</PackageTags>
+		<Description>Source generators for Dreamine MVVM commands, properties, and boilerplate reduction.</Description>
+		<PackageTags>dreamine;mvvm;source-generator;roslyn;analyzer</PackageTags>
 		<PackageLicenseExpression>MIT</PackageLicenseExpression>
 		<RepositoryUrl>https://github.com/CodeMaru-Dreamine/Dreamine.MVVM.Generators</RepositoryUrl>
 		<PackageProjectUrl>https://github.com/CodeMaru-Dreamine/Dreamine.MVVM.Generators</PackageProjectUrl>
 		<Title>Dreamine.MVVM.Generators</Title>
 		<Copyright>© 2025 Dreamine</Copyright>
 		<PackageReadmeFile>README.md</PackageReadmeFile>
+		<PackageIcon>icon.png</PackageIcon>
 	</PropertyGroup>
+
 	<PropertyGroup>
 		<NoWarn>$(NoWarn);NETSDK1023;NU5128</NoWarn>
 	</PropertyGroup>
+
 	<ItemGroup>
 		<PackageReference Include="Microsoft.CodeAnalysis.Analyzers" PrivateAssets="all" />
 		<PackageReference Include="Microsoft.CodeAnalysis.Common" PrivateAssets="all" />
@@ -42,13 +45,13 @@
 		<ProjectReference Include="..\Attributes\Dreamine.MVVM.Attributes.csproj" PrivateAssets="all" ReferenceOutputAssembly="false" />
 	</ItemGroup>
 
-
 	<ItemGroup>
 		<None Include="$(TargetDir)$(TargetName).dll" Pack="true" PackagePath="analyzers/dotnet/cs" />
 		<None Include="$(TargetDir)$(TargetName).pdb" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" Condition="Exists('$(TargetDir)$(TargetName).pdb')" />
 
 		<None Include="README.md" Pack="true" PackagePath="\" />
 		<None Include="README_KO.md" Pack="true" PackagePath="\" Condition="Exists('README_KO.md')" />
+		<None Include="icon.png" Pack="true" PackagePath="\" />
 	</ItemGroup>
 
 	<ItemGroup>
