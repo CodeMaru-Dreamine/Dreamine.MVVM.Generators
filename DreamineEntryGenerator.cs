@@ -82,9 +82,9 @@ namespace Dreamine.MVVM.Generators
                     sb.AppendLine("            Dispatcher.InvokeAsync(RegisterAfter);");
                     sb.AppendLine("        }");
                     sb.AppendLine();
-                    sb.AppendLine("        partial void RegisterBefore();");
-                    sb.AppendLine("        partial void RegisterAfter();");
-                    sb.AppendLine("        partial void ShowMainWindow();");
+                    sb.AppendLine("        static partial void RegisterBefore();");
+                    sb.AppendLine("        static partial void RegisterAfter();");
+                    sb.AppendLine("        static partial void ShowMainWindow();");
                     sb.AppendLine();
                     sb.AppendLine("        /// <summary>");
                     sb.AppendLine("        /// View에 대응되는 ViewModel이 존재하면 자동으로 DataContext를 연결합니다.");
