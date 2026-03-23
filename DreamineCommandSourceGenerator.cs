@@ -61,9 +61,8 @@ namespace Dreamine.MVVM.Generators
                         if (gctx.Node is not MethodDeclarationSyntax mds)
                             return default(Candidate?);
 
-                        var ms = gctx.SemanticModel.GetDeclaredSymbol(mds) as IMethodSymbol;
-                        if (ms is null)
-                            return default(Candidate?);
+                        if (gctx.SemanticModel.GetDeclaredSymbol(mds) is not IMethodSymbol ms)
+                            return default(Candidate);
 
                         return new Candidate(mds, ms);
                     })
@@ -256,12 +255,10 @@ namespace Dreamine.MVVM.Generators
         /// </summary>
         private static string? GetNamedStringArgument(AttributeData attr, string name)
         {
-            foreach (var kv in attr.NamedArguments)
-            {
-                if (string.Equals(kv.Key, name, StringComparison.Ordinal))
-                    return kv.Value.Value?.ToString();
-            }
-            return null;
+            return attr.NamedArguments
+                .Where(kv => string.Equals(kv.Key, name, StringComparison.Ordinal))
+                .Select(kv => kv.Value.Value?.ToString())
+                .FirstOrDefault();
         }
 
         /// <summary>

@@ -121,22 +121,24 @@ namespace Dreamine.MVVM.Generators
         /// <param name="entryAttrSymbol">DreamineEntryAttribute 심볼입니다.</param>
         /// <returns>대상 클래스와 네임스페이스입니다.</returns>
         private static (INamedTypeSymbol Symbol, string Namespace)? GetEntryCandidate(
-            GeneratorSyntaxContext ctx,
-            INamedTypeSymbol? entryAttrSymbol)
+                GeneratorSyntaxContext ctx,
+                INamedTypeSymbol? entryAttrSymbol)
         {
             if (ctx.Node is not ClassDeclarationSyntax cds)
+            {
                 return null;
+            }
 
             if (ctx.SemanticModel.GetDeclaredSymbol(cds) is not INamedTypeSymbol classSymbol)
-                return null;
-
-            foreach (var attr in classSymbol.GetAttributes())
             {
-                if (SymbolEqualityComparer.Default.Equals(attr.AttributeClass, entryAttrSymbol))
-                {
-                    var ns = classSymbol.ContainingNamespace.ToDisplayString();
-                    return (classSymbol, ns);
-                }
+                return null;
+            }
+
+            if (classSymbol.GetAttributes()
+                .Any(attr => SymbolEqualityComparer.Default.Equals(attr.AttributeClass, entryAttrSymbol)))
+            {
+                string ns = classSymbol.ContainingNamespace.ToDisplayString();
+                return (classSymbol, ns);
             }
 
             return null;

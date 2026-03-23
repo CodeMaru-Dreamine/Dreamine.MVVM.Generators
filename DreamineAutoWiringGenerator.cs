@@ -87,8 +87,7 @@ namespace Dreamine.MVVM.Generators
                         }
 
                         var source = GenerateCodeForSingleProperty(
-                            classSymbol,
-                            item.Syntax,
+                            classSymbol,                         
                             item.Symbol,
                             item.Kind,
                             item.IsField);
@@ -193,14 +192,13 @@ namespace Dreamine.MVVM.Generators
         }
 
         private static string? GetCandidateKind(
-            IEnumerable<AttributeData> attributes,
-            INamedTypeSymbol? modelAttr,
-            INamedTypeSymbol? eventAttr,
-            INamedTypeSymbol? propertyAttr)
+    IEnumerable<AttributeData> attributes,
+    INamedTypeSymbol? modelAttr,
+    INamedTypeSymbol? eventAttr,
+    INamedTypeSymbol? propertyAttr)
         {
-            foreach (AttributeData attribute in attributes)
+            foreach (INamedTypeSymbol? attributeClass in attributes.Select(attribute => attribute.AttributeClass))
             {
-                INamedTypeSymbol? attributeClass = attribute.AttributeClass;
                 if (attributeClass is null)
                 {
                     continue;
@@ -226,11 +224,10 @@ namespace Dreamine.MVVM.Generators
         }
 
         private static string GenerateCodeForSingleProperty(
-            INamedTypeSymbol classSymbol,
-            SyntaxNode syntax,
-            ISymbol symbol,
-            string kind,
-            bool isField)
+                INamedTypeSymbol classSymbol,
+                ISymbol symbol,
+                string kind,
+                bool isField)
         {
             var ns = classSymbol.ContainingNamespace.ToDisplayString();
             var className = classSymbol.Name;
