@@ -13,7 +13,7 @@ namespace Dreamine.MVVM.Generators
     /// <summary>
     /// \brief [DreamineCommand] 기반 커맨드/메서드 구현 소스 제너레이터.
     /// \details
-    /// - 대상 메서드에 [DreamineCommand("Event.ReadmeCleck", BindTo="Readme")]를 붙이면,
+    /// - 대상 메서드에 [DreamineCommand("Event.ReadmeClick", BindTo="Readme")]를 붙이면,
     ///   Generator가 다음을 자동 생성합니다.
     ///   1) ICommand {MethodName}Command 프로퍼티
     ///   2) partial 메서드 구현(메서드 바디가 비어있을 때)
