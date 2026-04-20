@@ -4,306 +4,501 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using System.Text;
-using System.Threading;
 
 namespace Dreamine.MVVM.Generators
 {
     /// <summary>
-    /// \brief [DreamineCommand] 기반 커맨드/메서드 구현 소스 제너레이터.
-    /// \details
-    /// - 대상 메서드에 [DreamineCommand("Event.ReadmeClick", BindTo="Readme")]를 붙이면,
-    ///   Generator가 다음을 자동 생성합니다.
-    ///   1) ICommand {MethodName}Command 프로퍼티
-    ///   2) partial 메서드 구현(메서드 바디가 비어있을 때)
-    ///   3) TargetMethod() 호출 + BindTo 프로퍼티 대입(옵션)
-    /// \note
-    /// - Attribute 타입(DreamineCommandAttribute)은 소비 프로젝트에서 참조 가능해야 합니다.
+    /// <c>DreamineCommandAttribute</c>가 적용된 메서드를 기반으로
+    /// 커맨드 프로퍼티와 forwarding 메서드 구현을 생성하는 증분 생성기입니다.
     /// </summary>
     [Generator]
     public sealed class DreamineCommandSourceGenerator : IIncrementalGenerator
     {
-        /// <summary>
-        /// \brief [DreamineCommand] 메서드는 partial 이어야 한다.
-        /// </summary>
-        private static readonly DiagnosticDescriptor NotPartialMethodRule =
-            new DiagnosticDescriptor(
-                id: "DMCMD001",
-                title: "DreamineCommand requires partial method",
-                messageFormat: "[DreamineCommand] 메서드는 partial 이어야 합니다: '{0}'",
-                category: "Dreamine.MVVM.Generators",
-                defaultSeverity: DiagnosticSeverity.Error,
-                isEnabledByDefault: true);
+        private const string DreamineCommandAttributeMetadataName = "Dreamine.MVVM.Attributes.DreamineCommandAttribute";
+
+        private static readonly DiagnosticDescriptor MethodMustBePartialDescriptor = new(
+            id: "DMCMD001",
+            title: "DreamineCommand method must be partial",
+            messageFormat: "Method '{0}' marked with [DreamineCommand] must be declared partial",
+            category: "Dreamine.MVVM.Generators",
+            defaultSeverity: DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
+
+        private static readonly DiagnosticDescriptor ContainingTypeMustBePartialDescriptor = new(
+            id: "DMCMD002",
+            title: "Containing type must be partial",
+            messageFormat: "Containing type '{0}' for [DreamineCommand] method must be declared partial",
+            category: "Dreamine.MVVM.Generators",
+            defaultSeverity: DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
+
+        private static readonly DiagnosticDescriptor MethodMustBeParameterlessVoidDescriptor = new(
+            id: "DMCMD003",
+            title: "DreamineCommand method must be parameterless void",
+            messageFormat: "Method '{0}' marked with [DreamineCommand] must be a parameterless void method",
+            category: "Dreamine.MVVM.Generators",
+            defaultSeverity: DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
+
+        private static readonly DiagnosticDescriptor TargetMethodIsRequiredDescriptor = new(
+            id: "DMCMD004",
+            title: "Target method is required",
+            messageFormat: "[DreamineCommand] on method '{0}' must specify a non-empty target method",
+            category: "Dreamine.MVVM.Generators",
+            defaultSeverity: DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
+
+        private static readonly DiagnosticDescriptor CommandNameConflictDescriptor = new(
+            id: "DMCMD005",
+            title: "Generated command property name conflicts with an existing member",
+            messageFormat: "Generated command property '{0}' conflicts with an existing member in type '{1}'",
+            category: "Dreamine.MVVM.Generators",
+            defaultSeverity: DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
 
         /// <summary>
-        /// \brief Initialize - 증분 소스 제너레이터 구성.
+        /// 증분 생성기 파이프라인을 초기화합니다.
         /// </summary>
+        /// <param name="context">생성기 초기화 컨텍스트입니다.</param>
         public void Initialize(IncrementalGeneratorInitializationContext context)
         {
-            // ------------------------------------------------------------------
-            // \brief DreamineCommandAttribute Symbol 확보
-            // ------------------------------------------------------------------
-            var dreamineCommandAttrSymbol = context.CompilationProvider
-                .Select(static (Compilation c, CancellationToken _) =>
-                    c.GetTypeByMetadataName("Dreamine.MVVM.Attributes.DreamineCommandAttribute"));
+            IncrementalValueProvider<INamedTypeSymbol?> attributeSymbolProvider =
+                context.CompilationProvider.Select(
+                    static (compilation, _) => compilation.GetTypeByMetadataName(DreamineCommandAttributeMetadataName));
 
-            // ------------------------------------------------------------------
-            // \brief 후보 메서드 수집 (MethodDeclarationSyntax + AttributeData)
-            // \details
-            // - transform 단계에서 semantic symbol을 뽑아 Candidate로 바로 축소
-            // ------------------------------------------------------------------
-            var candidates = context.SyntaxProvider.CreateSyntaxProvider(
-                    predicate: static (SyntaxNode node, CancellationToken _) =>
-                        node is MethodDeclarationSyntax { AttributeLists.Count: > 0 },
-                    transform: static (GeneratorSyntaxContext gctx, CancellationToken _) =>
-                    {
-                        if (gctx.Node is not MethodDeclarationSyntax mds)
-                            return default(Candidate?);
+            IncrementalValueProvider<ImmutableArray<CommandCandidateModel>> candidateProvider =
+                context.SyntaxProvider
+                    .CreateSyntaxProvider(
+                        predicate: static (node, _) => node is MethodDeclarationSyntax { AttributeLists.Count: > 0 },
+                        transform: static (syntaxContext, _) => syntaxContext)
+                    .Combine(attributeSymbolProvider)
+                    .Select(static (pair, _) => TryCreateCandidate(pair.Left, pair.Right))
+                    .Where(static candidate => candidate is not null)
+                    .Select(static (candidate, _) => candidate!)
+                    .Collect();
 
-                        if (gctx.SemanticModel.GetDeclaredSymbol(mds) is not IMethodSymbol ms)
-                            return default(Candidate);
-
-                        return new Candidate(mds, ms);
-                    })
-                .Where(static c => c.HasValue)
-                .Select(static (c, _) => c!.Value)
-                .Combine(dreamineCommandAttrSymbol)
-                .Select(static (pair, _) => FilterByAttribute(pair.Left, pair.Right))
-                .Where(static c => c.HasValue)
-                .Select(static (c, _) => c!.Value);
-
-            // ------------------------------------------------------------------
-            // \brief 소스 생성
-            // ------------------------------------------------------------------
-            context.RegisterSourceOutput(candidates, static (spc, candidate) =>
+            context.RegisterSourceOutput(candidateProvider, static (sourceProductionContext, candidates) =>
             {
-                var (source, diags) = Generate(candidate);
-
-                foreach (var d in diags)
-                    spc.ReportDiagnostic(d);
-
-                if (string.IsNullOrWhiteSpace(source))
-                    return;
-
-                var ns = Sanitize(candidate.MethodSymbol.ContainingNamespace.ToDisplayString());
-                var className = candidate.MethodSymbol.ContainingType.Name;
-                var methodName = candidate.MethodSymbol.Name;
-
-                var fileName = $"{ns}_{className}_{methodName}_DreamineCommand.g.cs";
-                spc.AddSource(fileName, SourceText.From(source, Encoding.UTF8));
+                Emit(sourceProductionContext, candidates);
             });
         }
 
         /// <summary>
-        /// \brief Candidate가 DreamineCommandAttribute를 갖는지 확인하고 AttributeData를 붙여 반환합니다.
+        /// 구문/시맨틱 정보를 기반으로 생성 후보를 구성합니다.
         /// </summary>
-        private static CandidateWithAttribute? FilterByAttribute(Candidate c, INamedTypeSymbol? attrSymbol)
+        /// <param name="context">구문 분석 컨텍스트입니다.</param>
+        /// <param name="attributeSymbol"><c>DreamineCommandAttribute</c> 심볼입니다.</param>
+        /// <returns>유효한 후보이면 모델을 반환하고, 아니면 <see langword="null"/>을 반환합니다.</returns>
+        private static CommandCandidateModel? TryCreateCandidate(
+            GeneratorSyntaxContext context,
+            INamedTypeSymbol? attributeSymbol)
         {
-            if (attrSymbol is null)
+            if (attributeSymbol is null)
+            {
                 return null;
+            }
 
-            var attr = c.MethodSymbol
+            if (context.Node is not MethodDeclarationSyntax methodSyntax)
+            {
+                return null;
+            }
+
+            if (context.SemanticModel.GetDeclaredSymbol(methodSyntax) is not IMethodSymbol methodSymbol)
+            {
+                return null;
+            }
+
+            AttributeData? attributeData = methodSymbol
                 .GetAttributes()
-                .FirstOrDefault(a => SymbolEqualityComparer.Default.Equals(a.AttributeClass, attrSymbol));
+                .FirstOrDefault(attribute => SymbolEqualityComparer.Default.Equals(attribute.AttributeClass, attributeSymbol));
 
-            if (attr is null)
+            if (attributeData is null)
+            {
                 return null;
+            }
 
-            return new CandidateWithAttribute(c.MethodSyntax, c.MethodSymbol, attr);
+            string? targetMethod = GetConstructorStringArgument(attributeData, 0);
+            string? bindTo = GetNamedStringArgument(attributeData, "BindTo");
+            string? commandNameOverride = GetNamedStringArgument(attributeData, "CommandName");
+
+            string commandPropertyName = BuildCommandPropertyName(methodSymbol.Name, commandNameOverride);
+
+            return new CommandCandidateModel(
+                methodSyntax,
+                methodSymbol,
+                targetMethod,
+                bindTo,
+                commandPropertyName);
         }
 
         /// <summary>
-        /// \brief CandidateWithAttribute 기반으로 최종 생성 코드를 만듭니다.
+        /// 수집된 후보를 진단하고 소스를 생성합니다.
         /// </summary>
-        private static (string Source, List<Diagnostic> Diagnostics) Generate(CandidateWithAttribute candidate)
+        /// <param name="context">소스 출력 컨텍스트입니다.</param>
+        /// <param name="candidates">수집된 후보 목록입니다.</param>
+        private static void Emit(
+            SourceProductionContext context,
+            ImmutableArray<CommandCandidateModel> candidates)
         {
-            var diags = new List<Diagnostic>();
-
-            var methodSyntax = candidate.MethodSyntax;
-            var methodSymbol = candidate.MethodSymbol;
-            var attrData = candidate.Attribute;
-
-            // ------------------------------------------------------------------
-            // \brief partial 메서드 요구
-            // ------------------------------------------------------------------
-            if (!methodSyntax.Modifiers.Any(m => m.IsKind(SyntaxKind.PartialKeyword)))
+            if (candidates.IsDefaultOrEmpty)
             {
-                diags.Add(Diagnostic.Create(
-                    NotPartialMethodRule,
-                    methodSyntax.Identifier.GetLocation(),
-                    methodSymbol.ToDisplayString()));
-                return (string.Empty, diags);
+                return;
             }
 
-            // ------------------------------------------------------------------
-            // \brief Attribute 파라미터 파싱
-            // ------------------------------------------------------------------
-            var targetMethod = GetCtorStringArgument(attrData, index: 0) ?? string.Empty;
-            var bindTo = GetNamedStringArgument(attrData, "BindTo");
-            var commandNameOverride = GetNamedStringArgument(attrData, "CommandName");
+            foreach (CommandCandidateModel candidate in candidates)
+            {
+                List<Diagnostic> diagnostics = ValidateCandidate(candidate);
+                foreach (Diagnostic diagnostic in diagnostics)
+                {
+                    context.ReportDiagnostic(diagnostic);
+                }
 
-            if (string.IsNullOrWhiteSpace(targetMethod))
-                return (string.Empty, diags);
+                if (diagnostics.Count > 0)
+                {
+                    continue;
+                }
 
-            var invocation = NormalizeInvocation(targetMethod);
+                string source = BuildSource(candidate);
+                string fileName = BuildFileName(candidate);
 
-            var methodName = methodSymbol.Name;
-            var commandName = !string.IsNullOrWhiteSpace(commandNameOverride)
-                ? commandNameOverride!
-                : methodName + "Command";
+                context.AddSource(fileName, SourceText.From(source, Encoding.UTF8));
+            }
+        }
 
-            var ns = methodSymbol.ContainingNamespace.ToDisplayString();
-            var typeChain = GetContainingTypeChain(methodSymbol.ContainingType);
+        /// <summary>
+        /// 후보의 유효성을 검증합니다.
+        /// </summary>
+        /// <param name="candidate">검사할 후보입니다.</param>
+        /// <returns>발견된 진단 목록입니다.</returns>
+        private static List<Diagnostic> ValidateCandidate(CommandCandidateModel candidate)
+        {
+            List<Diagnostic> diagnostics = new List<Diagnostic>();
 
-            // ------------------------------------------------------------------
-            // \brief 소스 생성
-            // ------------------------------------------------------------------
-            var sb = new StringBuilder();
-            sb.AppendLine("// <auto-generated />");
-            sb.AppendLine("#nullable enable");
-            sb.AppendLine("using System.Windows.Input;");
-            sb.AppendLine("using Dreamine.MVVM.Core;");
-            sb.AppendLine("using Dreamine.MVVM.ViewModels;");
-            sb.AppendLine();
-            sb.AppendLine($"namespace {ns}");
-            sb.AppendLine("{");
+            if (!IsPartialMethod(candidate.MethodSyntax))
+            {
+                diagnostics.Add(Diagnostic.Create(
+                    MethodMustBePartialDescriptor,
+                    candidate.MethodSyntax.Identifier.GetLocation(),
+                    candidate.MethodSymbol.ToDisplayString()));
+            }
+
+            if (!IsContainingTypePartial(candidate.MethodSymbol.ContainingType))
+            {
+                diagnostics.Add(Diagnostic.Create(
+                    ContainingTypeMustBePartialDescriptor,
+                    candidate.MethodSyntax.Identifier.GetLocation(),
+                    candidate.MethodSymbol.ContainingType.ToDisplayString()));
+            }
+
+            if (!IsParameterlessVoidMethod(candidate.MethodSymbol))
+            {
+                diagnostics.Add(Diagnostic.Create(
+                    MethodMustBeParameterlessVoidDescriptor,
+                    candidate.MethodSyntax.Identifier.GetLocation(),
+                    candidate.MethodSymbol.ToDisplayString()));
+            }
+
+            if (string.IsNullOrWhiteSpace(candidate.TargetMethod))
+            {
+                diagnostics.Add(Diagnostic.Create(
+                    TargetMethodIsRequiredDescriptor,
+                    candidate.MethodSyntax.Identifier.GetLocation(),
+                    candidate.MethodSymbol.ToDisplayString()));
+            }
+
+            if (HasConflictingMember(candidate.MethodSymbol.ContainingType, candidate.CommandPropertyName))
+            {
+                diagnostics.Add(Diagnostic.Create(
+                    CommandNameConflictDescriptor,
+                    candidate.MethodSyntax.Identifier.GetLocation(),
+                    candidate.CommandPropertyName,
+                    candidate.MethodSymbol.ContainingType.ToDisplayString()));
+            }
+
+            return diagnostics;
+        }
+
+        /// <summary>
+        /// partial 메서드 여부를 확인합니다.
+        /// </summary>
+        /// <param name="methodSyntax">검사할 메서드 구문입니다.</param>
+        /// <returns>partial 메서드이면 <see langword="true"/>이고, 아니면 <see langword="false"/>입니다.</returns>
+        private static bool IsPartialMethod(MethodDeclarationSyntax methodSyntax)
+        {
+            return methodSyntax.Modifiers.Any(modifier => modifier.IsKind(SyntaxKind.PartialKeyword));
+        }
+
+        /// <summary>
+        /// containing type이 partial인지 확인합니다.
+        /// </summary>
+        /// <param name="typeSymbol">검사할 타입 심볼입니다.</param>
+        /// <returns>partial 타입이면 <see langword="true"/>이고, 아니면 <see langword="false"/>입니다.</returns>
+        private static bool IsContainingTypePartial(INamedTypeSymbol typeSymbol)
+        {
+            foreach (SyntaxReference syntaxReference in typeSymbol.DeclaringSyntaxReferences)
+            {
+                if (syntaxReference.GetSyntax() is TypeDeclarationSyntax typeDeclaration &&
+                    typeDeclaration.Modifiers.Any(modifier => modifier.IsKind(SyntaxKind.PartialKeyword)))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 메서드가 parameterless void 형식인지 확인합니다.
+        /// </summary>
+        /// <param name="methodSymbol">검사할 메서드 심볼입니다.</param>
+        /// <returns>조건을 만족하면 <see langword="true"/>이고, 아니면 <see langword="false"/>입니다.</returns>
+        private static bool IsParameterlessVoidMethod(IMethodSymbol methodSymbol)
+        {
+            return methodSymbol.Parameters.Length == 0 &&
+                   methodSymbol.ReturnsVoid &&
+                   !methodSymbol.IsGenericMethod;
+        }
+
+        /// <summary>
+        /// 같은 이름의 멤버가 이미 존재하는지 확인합니다.
+        /// </summary>
+        /// <param name="typeSymbol">검사할 타입입니다.</param>
+        /// <param name="memberName">검사할 멤버 이름입니다.</param>
+        /// <returns>같은 이름의 멤버가 있으면 <see langword="true"/>이고, 아니면 <see langword="false"/>입니다.</returns>
+        private static bool HasConflictingMember(INamedTypeSymbol typeSymbol, string memberName)
+        {
+            return typeSymbol.GetMembers(memberName).Any();
+        }
+
+        /// <summary>
+        /// 생성할 커맨드 프로퍼티 이름을 결정합니다.
+        /// </summary>
+        /// <param name="methodName">원본 메서드 이름입니다.</param>
+        /// <param name="commandNameOverride">명시적으로 지정한 커맨드 이름입니다.</param>
+        /// <returns>생성할 커맨드 프로퍼티 이름입니다.</returns>
+        private static string BuildCommandPropertyName(string methodName, string? commandNameOverride)
+        {
+            if (!string.IsNullOrWhiteSpace(commandNameOverride))
+            {
+                return commandNameOverride!;
+            }
+
+            return methodName + "Command";
+        }
+
+        /// <summary>
+        /// 생성 파일 이름을 만듭니다.
+        /// </summary>
+        /// <param name="candidate">대상 후보입니다.</param>
+        /// <returns>생성 파일 이름입니다.</returns>
+        private static string BuildFileName(CommandCandidateModel candidate)
+        {
+            string namespaceName = candidate.MethodSymbol.ContainingNamespace.IsGlobalNamespace
+                ? "Global"
+                : Sanitize(candidate.MethodSymbol.ContainingNamespace.ToDisplayString());
+
+            string typeName = string.Join("_", GetContainingTypeChain(candidate.MethodSymbol.ContainingType).Select(type => type.Name));
+            string methodName = candidate.MethodSymbol.Name;
+
+            return namespaceName + "_" + typeName + "_" + methodName + "_DreamineCommand.g.cs";
+        }
+
+        /// <summary>
+        /// 생성 코드를 만듭니다.
+        /// </summary>
+        /// <param name="candidate">생성 대상 후보입니다.</param>
+        /// <returns>생성된 C# 소스 문자열입니다.</returns>
+        private static string BuildSource(CommandCandidateModel candidate)
+        {
+            string namespaceName = candidate.MethodSymbol.ContainingNamespace.IsGlobalNamespace
+                ? string.Empty
+                : candidate.MethodSymbol.ContainingNamespace.ToDisplayString();
+
+            List<INamedTypeSymbol> typeChain = GetContainingTypeChain(candidate.MethodSymbol.ContainingType);
+            string commandFieldName = "_" + ToCamel(candidate.CommandPropertyName);
+            string helperTypeName = "__DreamineGeneratedCommand_" + candidate.MethodSymbol.Name;
+            string normalizedInvocation = NormalizeInvocation(candidate.TargetMethod!);
+
+            StringBuilder builder = new StringBuilder();
+            builder.AppendLine("// <auto-generated />");
+            builder.AppendLine("#nullable enable");
+            builder.AppendLine("using System;");
+            builder.AppendLine("using System.Windows.Input;");
+            builder.AppendLine();
+
+            if (!string.IsNullOrWhiteSpace(namespaceName))
+            {
+                builder.AppendLine("namespace " + namespaceName);
+                builder.AppendLine("{");
+            }
 
             for (int i = 0; i < typeChain.Count; i++)
             {
-                var t = typeChain[i];
-                var indent = new string(' ', 4 * (i + 1));
-                sb.AppendLine($"{indent}{GetTypeDeclarationHeader(t)}");
-                sb.AppendLine($"{indent}{{");
+                string indent = new string(' ', 4 * (i + 1));
+                builder.AppendLine(indent + GetTypeDeclarationHeader(typeChain[i]));
+                builder.AppendLine(indent + "{");
             }
 
-            var innerIndent = new string(' ', 4 * (typeChain.Count + 1));
+            string memberIndent = new string(' ', 4 * (typeChain.Count + 1));
 
-            // \brief ICommand 프로퍼티 생성(상속 강제 금지)
-            var fieldName = "_" + ToCamel(commandName);
-            sb.AppendLine($"{innerIndent}/// <summary>");
-            sb.AppendLine($"{innerIndent}/// \\brief {commandName} ICommand 프로퍼티(자동 생성).");
-            sb.AppendLine($"{innerIndent}/// </summary>");
-            sb.AppendLine($"{innerIndent}private ICommand? {fieldName};");
-            sb.AppendLine($"{innerIndent}public ICommand {commandName} => {fieldName} ??= new RelayCommand({methodName});");
-            sb.AppendLine();
+            builder.AppendLine(memberIndent + "/// <summary>");
+            builder.AppendLine(memberIndent + "/// 생성된 ICommand 프로퍼티입니다.");
+            builder.AppendLine(memberIndent + "/// </summary>");
+            builder.AppendLine(memberIndent + "private ICommand? " + commandFieldName + ";");
+            builder.AppendLine(memberIndent + "public ICommand " + candidate.CommandPropertyName + " => " + commandFieldName + " ??= new " + helperTypeName + "(" + candidate.MethodSymbol.Name + ");");
+            builder.AppendLine();
 
-            // \brief partial 메서드 바디가 비어있을 때만 구현 생성
-            var hasBody = methodSyntax.Body is not null || methodSyntax.ExpressionBody is not null;
+            bool hasBody = candidate.MethodSyntax.Body is not null || candidate.MethodSyntax.ExpressionBody is not null;
             if (!hasBody)
             {
-                sb.AppendLine($"{innerIndent}{GetMethodSignature(methodSyntax)}");
-                sb.AppendLine($"{innerIndent}{{");
+                builder.AppendLine(memberIndent + GetMethodSignatureWithoutAttributes(candidate.MethodSyntax));
+                builder.AppendLine(memberIndent + "{");
 
-                if (!string.IsNullOrWhiteSpace(bindTo))
+                if (!string.IsNullOrWhiteSpace(candidate.BindTo))
                 {
-                    sb.AppendLine($"{innerIndent}    var __result = {invocation};");
-                    sb.AppendLine($"{innerIndent}    {bindTo} = __result;");
+                    builder.AppendLine(memberIndent + "    var __result = " + normalizedInvocation + ";");
+                    builder.AppendLine(memberIndent + "    " + candidate.BindTo + " = __result;");
                 }
                 else
                 {
-                    sb.AppendLine($"{innerIndent}    {invocation};");
+                    builder.AppendLine(memberIndent + "    " + normalizedInvocation + ";");
                 }
 
-                sb.AppendLine($"{innerIndent}}}");
-                sb.AppendLine();
+                builder.AppendLine(memberIndent + "}");
+                builder.AppendLine();
             }
+
+            builder.AppendLine(memberIndent + "private sealed class " + helperTypeName + " : ICommand");
+            builder.AppendLine(memberIndent + "{");
+            builder.AppendLine(memberIndent + "    private readonly Action _execute;");
+            builder.AppendLine(memberIndent + "    public " + helperTypeName + "(Action execute)");
+            builder.AppendLine(memberIndent + "    {");
+            builder.AppendLine(memberIndent + "        _execute = execute ?? throw new ArgumentNullException(nameof(execute));");
+            builder.AppendLine(memberIndent + "    }");
+            builder.AppendLine(memberIndent + "    public event EventHandler? CanExecuteChanged");
+            builder.AppendLine(memberIndent + "    {");
+            builder.AppendLine(memberIndent + "        add { }");
+            builder.AppendLine(memberIndent + "        remove { }");
+            builder.AppendLine(memberIndent + "    }");
+            builder.AppendLine(memberIndent + "    public bool CanExecute(object? parameter) => true;");
+            builder.AppendLine(memberIndent + "    public void Execute(object? parameter) => _execute();");
+            builder.AppendLine(memberIndent + "}");
+            builder.AppendLine();
 
             for (int i = typeChain.Count - 1; i >= 0; i--)
             {
-                var indent = new string(' ', 4 * (i + 1));
-                sb.AppendLine($"{indent}}}");
+                string indent = new string(' ', 4 * (i + 1));
+                builder.AppendLine(indent + "}");
             }
 
-            sb.AppendLine("}");
-            return (sb.ToString(), diags);
+            if (!string.IsNullOrWhiteSpace(namespaceName))
+            {
+                builder.AppendLine("}");
+            }
+
+            return builder.ToString();
         }
 
         /// <summary>
-        /// \brief 생성 대상 메서드 시그니처를 원본 문법에서 추출해 재구성합니다.
-        /// \details
-        /// - AttributeLists는 제거합니다(생성 파일에서 using/타입해석 문제 방지)
-        /// - 접근자/정적/partial 유지
-        /// - 본문은 Generator에서 생성
+        /// 원본 메서드에서 Attribute와 본문을 제거한 시그니처를 만듭니다.
         /// </summary>
-        private static string GetMethodSignature(MethodDeclarationSyntax methodSyntax)
+        /// <param name="methodSyntax">원본 메서드 구문입니다.</param>
+        /// <returns>생성용 메서드 시그니처 문자열입니다.</returns>
+        private static string GetMethodSignatureWithoutAttributes(MethodDeclarationSyntax methodSyntax)
         {
-            /// \brief Attribute 제거 + 본문 제거 후 시그니처만 구성
-            var withoutBody = methodSyntax
-                .WithAttributeLists(default)         /// \brief Attribute 제거(핵심)
+            MethodDeclarationSyntax withoutBody = methodSyntax
+                .WithAttributeLists(default)
                 .WithBody(null)
                 .WithExpressionBody(null)
                 .WithSemicolonToken(default);
 
-            return withoutBody.ToFullString().Trim();
+            return withoutBody.NormalizeWhitespace().ToFullString();
         }
 
         /// <summary>
-        /// \brief DreamineCommandAttribute 생성자 문자열 인자를 가져옵니다.
+        /// 생성자 문자열 인자를 가져옵니다.
         /// </summary>
-        private static string? GetCtorStringArgument(AttributeData attr, int index)
+        /// <param name="attribute">검사할 Attribute 데이터입니다.</param>
+        /// <param name="index">가져올 생성자 인덱스입니다.</param>
+        /// <returns>값이 있으면 문자열을 반환하고, 아니면 <see langword="null"/>을 반환합니다.</returns>
+        private static string? GetConstructorStringArgument(AttributeData attribute, int index)
         {
-            if (attr.ConstructorArguments.Length <= index)
+            if (attribute.ConstructorArguments.Length <= index)
+            {
                 return null;
+            }
 
-            var arg = attr.ConstructorArguments[index];
-            return arg.Value?.ToString();
+            return attribute.ConstructorArguments[index].Value?.ToString();
         }
 
         /// <summary>
-        /// \brief DreamineCommandAttribute의 NamedArgument 문자열 값을 가져옵니다.
+        /// named argument 문자열 값을 가져옵니다.
         /// </summary>
-        private static string? GetNamedStringArgument(AttributeData attr, string name)
+        /// <param name="attribute">검사할 Attribute 데이터입니다.</param>
+        /// <param name="name">찾을 인자 이름입니다.</param>
+        /// <returns>값이 있으면 문자열을 반환하고, 아니면 <see langword="null"/>을 반환합니다.</returns>
+        private static string? GetNamedStringArgument(AttributeData attribute, string name)
         {
-            return attr.NamedArguments
-                .Where(kv => string.Equals(kv.Key, name, StringComparison.Ordinal))
-                .Select(kv => kv.Value.Value?.ToString())
+            return attribute.NamedArguments
+                .Where(argument => string.Equals(argument.Key, name, StringComparison.Ordinal))
+                .Select(argument => argument.Value.Value?.ToString())
                 .FirstOrDefault();
         }
 
         /// <summary>
-        /// \brief TargetMethod 문자열을 invocation 형태로 정규화합니다.
+        /// TargetMethod 문자열을 호출 형태로 정규화합니다.
         /// </summary>
+        /// <param name="targetMethod">원본 대상 메서드 문자열입니다.</param>
+        /// <returns>호출 형태로 정규화된 문자열입니다.</returns>
         private static string NormalizeInvocation(string targetMethod)
         {
-            var t = targetMethod.Trim();
-            if (t.EndsWith(")", StringComparison.Ordinal))
-                return t;
-            return t + "()";
+            string trimmed = targetMethod.Trim();
+
+            if (trimmed.EndsWith(")", StringComparison.Ordinal))
+            {
+                return trimmed;
+            }
+
+            return trimmed + "()";
         }
 
         /// <summary>
-        /// \brief 중첩 타입 체인을 바깥 -> 안쪽 순서로 반환합니다.
+        /// 바깥 타입부터 안쪽 타입까지의 체인을 반환합니다.
         /// </summary>
-        private static List<INamedTypeSymbol> GetContainingTypeChain(INamedTypeSymbol innerMost)
+        /// <param name="innerMostType">가장 안쪽 타입입니다.</param>
+        /// <returns>바깥쪽부터 정렬된 타입 체인입니다.</returns>
+        private static List<INamedTypeSymbol> GetContainingTypeChain(INamedTypeSymbol innerMostType)
         {
-            var stack = new Stack<INamedTypeSymbol>();
-            INamedTypeSymbol? cur = innerMost;
+            Stack<INamedTypeSymbol> stack = new Stack<INamedTypeSymbol>();
+            INamedTypeSymbol? current = innerMostType;
 
-            while (cur is not null)
+            while (current is not null)
             {
-                stack.Push(cur);
-                cur = cur.ContainingType;
+                stack.Push(current);
+                current = current.ContainingType;
             }
 
             return stack.ToList();
         }
 
         /// <summary>
-        /// \brief 타입 선언 헤더를 생성합니다(반드시 partial).
-        /// \details 상속(: ViewModelBase) 같은 것은 절대 강제하지 않습니다.
+        /// partial 타입 선언 헤더를 생성합니다.
         /// </summary>
-        private static string GetTypeDeclarationHeader(INamedTypeSymbol t)
+        /// <param name="typeSymbol">대상 타입 심볼입니다.</param>
+        /// <returns>생성용 타입 선언 헤더입니다.</returns>
+        private static string GetTypeDeclarationHeader(INamedTypeSymbol typeSymbol)
         {
-            var kind = t.TypeKind switch
+            string kind = typeSymbol.TypeKind switch
             {
                 TypeKind.Class => "partial class",
                 TypeKind.Struct => "partial struct",
-                TypeKind.Interface => "partial interface",
                 _ => "partial class"
             };
 
-            var accessibility = t.DeclaredAccessibility switch
+            string accessibility = typeSymbol.DeclaredAccessibility switch
             {
                 Accessibility.Public => "public",
                 Accessibility.Internal => "internal",
@@ -314,77 +509,96 @@ namespace Dreamine.MVVM.Generators
                 _ => "internal"
             };
 
-            var staticKeyword = t.IsStatic ? " static" : string.Empty;
+            string staticKeyword = typeSymbol.IsStatic ? " static" : string.Empty;
 
-            var typeParams = t.TypeParameters.Length > 0
-                ? "<" + string.Join(", ", t.TypeParameters.Select(p => p.Name)) + ">"
+            string typeParameters = typeSymbol.TypeParameters.Length > 0
+                ? "<" + string.Join(", ", typeSymbol.TypeParameters.Select(parameter => parameter.Name)) + ">"
                 : string.Empty;
 
-            return $"{accessibility}{staticKeyword} {kind} {t.Name}{typeParams}";
+            return accessibility + staticKeyword + " " + kind + " " + typeSymbol.Name + typeParameters;
         }
 
         /// <summary>
-        /// \brief 이름을 파일명에 안전한 형태로 바꿉니다.
+        /// 파일명에 안전한 형태로 문자열을 정리합니다.
         /// </summary>
+        /// <param name="name">원본 문자열입니다.</param>
+        /// <returns>정리된 문자열입니다.</returns>
         private static string Sanitize(string name)
         {
             return name.Replace('.', '_').Replace('+', '_');
         }
 
         /// <summary>
-        /// \brief PascalCase 문자열을 camelCase로 변환합니다.
+        /// PascalCase 문자열을 camelCase로 변환합니다.
         /// </summary>
+        /// <param name="name">변환할 문자열입니다.</param>
+        /// <returns>camelCase 문자열입니다.</returns>
         private static string ToCamel(string name)
         {
             if (string.IsNullOrEmpty(name))
+            {
                 return name;
+            }
 
             if (name.Length == 1)
+            {
                 return name.ToLowerInvariant();
+            }
 
             return char.ToLowerInvariant(name[0]) + name.Substring(1);
         }
 
         /// <summary>
-        /// \brief 후보 메서드(문법 + 심볼) 정보.
+        /// 생성 대상 메서드 메타데이터를 나타냅니다.
         /// </summary>
-        private readonly struct Candidate
+        private sealed class CommandCandidateModel
         {
-            /// <summary>\brief MethodDeclarationSyntax</summary>
-            public MethodDeclarationSyntax MethodSyntax { get; }
-
-            /// <summary>\brief IMethodSymbol</summary>
-            public IMethodSymbol MethodSymbol { get; }
-
-            /// <summary>\brief 생성자</summary>
-            public Candidate(MethodDeclarationSyntax methodSyntax, IMethodSymbol methodSymbol)
+            /// <summary>
+            /// <see cref="CommandCandidateModel"/> 클래스의 새 인스턴스를 초기화합니다.
+            /// </summary>
+            /// <param name="methodSyntax">원본 메서드 구문입니다.</param>
+            /// <param name="methodSymbol">원본 메서드 심볼입니다.</param>
+            /// <param name="targetMethod">대상 메서드 경로입니다.</param>
+            /// <param name="bindTo">반환값을 대입할 프로퍼티 이름입니다.</param>
+            /// <param name="commandPropertyName">생성할 커맨드 프로퍼티 이름입니다.</param>
+            public CommandCandidateModel(
+                MethodDeclarationSyntax methodSyntax,
+                IMethodSymbol methodSymbol,
+                string? targetMethod,
+                string? bindTo,
+                string commandPropertyName)
             {
                 MethodSyntax = methodSyntax;
                 MethodSymbol = methodSymbol;
+                TargetMethod = targetMethod;
+                BindTo = bindTo;
+                CommandPropertyName = commandPropertyName;
             }
-        }
 
-        /// <summary>
-        /// \brief AttributeData까지 포함된 최종 후보 정보.
-        /// </summary>
-        private readonly struct CandidateWithAttribute
-        {
-            /// <summary>\brief MethodDeclarationSyntax</summary>
+            /// <summary>
+            /// 원본 메서드 구문을 가져옵니다.
+            /// </summary>
             public MethodDeclarationSyntax MethodSyntax { get; }
 
-            /// <summary>\brief IMethodSymbol</summary>
+            /// <summary>
+            /// 원본 메서드 심볼을 가져옵니다.
+            /// </summary>
             public IMethodSymbol MethodSymbol { get; }
 
-            /// <summary>\brief AttributeData</summary>
-            public AttributeData Attribute { get; }
+            /// <summary>
+            /// 대상 메서드 경로를 가져옵니다.
+            /// </summary>
+            public string? TargetMethod { get; }
 
-            /// <summary>\brief 생성자</summary>
-            public CandidateWithAttribute(MethodDeclarationSyntax methodSyntax, IMethodSymbol methodSymbol, AttributeData attribute)
-            {
-                MethodSyntax = methodSyntax;
-                MethodSymbol = methodSymbol;
-                Attribute = attribute;
-            }
+            /// <summary>
+            /// 반환값을 대입할 프로퍼티 이름을 가져옵니다.
+            /// </summary>
+            public string? BindTo { get; }
+
+            /// <summary>
+            /// 생성할 커맨드 프로퍼티 이름을 가져옵니다.
+            /// </summary>
+            public string CommandPropertyName { get; }
         }
     }
 }

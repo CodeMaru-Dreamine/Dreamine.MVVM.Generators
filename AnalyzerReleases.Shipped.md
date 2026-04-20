@@ -3,7 +3,10 @@
 ### New Rules
 
 Rule ID | Category | Severity | Notes
---------|----------|----------|------
-DMCMD001 | Dreamine.MVVM.Generators | Error | [DreamineCommand] methods must be declared as partial.
+---|---|---|---
+DMCMD001 | Dreamine.MVVM.Generators | Error | [DreamineCommand] methods must be declared as partial
 
 ### Removed Rules
+
+Rule ID | Category | Severity | Notes
+---|---|---|---
