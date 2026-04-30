@@ -16,7 +16,7 @@
 		<EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
 
 		<PackageId>Dreamine.MVVM.Generators</PackageId>
-		<Version>1.0.11</Version>
+		<Version>1.0.12</Version>
 		<Authors>Dreamine Core Team</Authors>
 		<Company>Dreamine</Company>
 		<Description>Source generators for Dreamine MVVM commands, properties, and boilerplate reduction.</Description>
