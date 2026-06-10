@@ -7,11 +7,7 @@ DMG002 | Dreamine.MVVM.Generators | Error | Entry class must inherit Application
 DMG003 | Dreamine.MVVM.Generators | Error | Only one entry class is allowed
 DMCMD002 | Dreamine.MVVM.Generators | Error | Containing type must be partial
 DMCMD003 | Dreamine.MVVM.Generators | Error | DreamineCommand method must be parameterless void
-DMCMD004 | Dreamine.MVVM.Generators | Error | Target method is required
-DMCMD005 | Dreamine.MVVM.Generators | Error | Generated command property name conflicts with an existing member
-DMRLY001 | Dreamine.MVVM.Generators | Error | Containing type must be partial
-DMRLY002 | Dreamine.MVVM.Generators | Error | RelayCommand method must be parameterless void
-DMRLY003 | Dreamine.MVVM.Generators | Error | Generated command property name conflicts with an existing member
+DMCMD004 | Dreamine.MVVM.Generators | Error | Generated command property name conflicts with an existing member
 
 ### Removed Rules
 

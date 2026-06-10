@@ -16,7 +16,6 @@ This package generates MVVM boilerplate code at **compile time** based on declar
 The main attributes currently handled are:
 
 - `DreamineProperty`
-- `RelayCommand`
 - `DreamineEntry`
 - `DreamineModel`
 - `DreamineEvent`
@@ -49,8 +48,7 @@ Dreamine.MVVM.Generators moves those repetitive patterns into the **generation l
 - Generates code from Dreamine attributes
 - Supports entry bootstrap generation
 - Supports field-based auto wiring
-- Supports RelayCommand-style command generation
-- Supports DreamineCommand-based forwarding command generation
+- Supports DreamineCommand-based direct and forwarding command generation
 - Can be packed into `analyzers/dotnet/cs`
 - Supports automatic analyzer registration through `buildTransitive`
 
@@ -93,7 +91,6 @@ Dreamine.MVVM.Generators
 ├── DreamineAutoWiringGenerator.cs
 ├── DreamineCommandSourceGenerator.cs
 ├── DreamineEntryGenerator.cs
-├── RelayCommandSourceGenerator.cs
 ├── AnalyzerReleases.Shipped.md
 ├── AnalyzerReleases.Unshipped.md
 ├── buildTransitive/
@@ -213,14 +210,18 @@ public partial class MainViewModel
 
 ---
 
-### 3) RelayCommandSourceGenerator
+### 3) DreamineCommandSourceGenerator
 
-Generates `ICommand` properties from methods marked with `[RelayCommand]`.
+Generates `ICommand` properties from methods marked with `[DreamineCommand]`.
 
 #### Current responsibilities
 
 - Generates a `{MethodName}Command` property
 - Supports `CommandName` override when provided
+- Directly wraps the annotated method when `TargetMethod` is not specified
+- Generates `TargetMethod` invocation code when forwarding is requested
+- Assigns the result to the `BindTo` property when forwarding with a return value
+- Generates a forwarding body when the method has no implementation body and `TargetMethod` is specified
 - Avoids direct dependency on an external `RelayCommand` type by emitting an internal generated `ICommand` wrapper
 
 #### Example
@@ -230,40 +231,11 @@ using Dreamine.MVVM.Attributes;
 
 public partial class MainViewModel
 {
-    [RelayCommand]
+    [DreamineCommand]
     private void Save()
     {
     }
-}
-```
 
-#### Current constraints
-
-- The containing type must be **partial**
-- The target method must be **parameterless void**
-- Generation is skipped when the command property name conflicts with an existing member
-
----
-
-### 4) DreamineCommandSourceGenerator
-
-Generates forwarding commands and partial method implementations from methods marked with `[DreamineCommand]`.
-
-#### Current responsibilities
-
-- Generates an `ICommand` property
-- Generates `TargetMethod` invocation code
-- Assigns the result to the `BindTo` property when specified
-- Generates a forwarding body when the method has no implementation body
-- Avoids direct dependency on an external `RelayCommand` type by emitting an internal generated `ICommand` wrapper
-
-#### Example
-
-```csharp
-using Dreamine.MVVM.Attributes;
-
-public partial class MainViewModel
-{
     [DreamineCommand("Event.ReadmeClick", BindTo = "Readme")]
     partial void LoadReadme();
 }
@@ -271,10 +243,9 @@ public partial class MainViewModel
 
 #### Current constraints
 
-- The target method must be **partial**
 - The containing type must be **partial**
 - The target method must be **parameterless void**
-- `TargetMethod` must not be empty
+- Forwarding methods without a body must be **partial**
 - Generation is skipped when the command property name conflicts with an existing member
 
 ---
@@ -301,7 +272,7 @@ public partial class MainViewModel
     [DreamineProperty]
     private string _title;
 
-    [RelayCommand]
+    [DreamineCommand]
     private void Save()
     {
     }
@@ -345,7 +316,7 @@ Under the current implementation:
 - `DreamineEntry` → App / bootstrap layer
 - `DreamineProperty` → ViewModel layer with `SetProperty`
 - `DreamineModel`, `DreamineEvent` → field access generation
-- `RelayCommand`, `DreamineCommand` → method-based command generation
+- `DreamineCommand` → method-based command generation
 
 ### 3) The generation rules are intentionally becoming stricter
 
