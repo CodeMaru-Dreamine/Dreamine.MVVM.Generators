@@ -51,6 +51,14 @@ namespace Dreamine.MVVM.Generators
             defaultSeverity: DiagnosticSeverity.Error,
             isEnabledByDefault: true);
 
+        private static readonly DiagnosticDescriptor CanExecuteMethodNotFoundDescriptor = new(
+            id: "DMCMD005",
+            title: "CanExecute method not found",
+            messageFormat: "CanExecute method '{0}' specified on [DreamineCommand] was not found in type '{1}'. The method must be a parameterless bool method.",
+            category: "Dreamine.MVVM.Generators",
+            defaultSeverity: DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
+
         /// <summary>
         /// 증분 생성기 파이프라인을 초기화합니다.
         /// </summary>
@@ -115,6 +123,7 @@ namespace Dreamine.MVVM.Generators
             string? targetMethod = GetConstructorStringArgument(attributeData, 0);
             string? bindTo = GetNamedStringArgument(attributeData, "BindTo");
             string? commandNameOverride = GetNamedStringArgument(attributeData, "CommandName");
+            string? canExecuteMethod = GetNamedStringArgument(attributeData, "CanExecute");
 
             string commandPropertyName = BuildCommandPropertyName(methodSymbol.Name, commandNameOverride);
 
@@ -123,7 +132,8 @@ namespace Dreamine.MVVM.Generators
                 methodSymbol,
                 targetMethod,
                 bindTo,
-                commandPropertyName);
+                commandPropertyName,
+                canExecuteMethod);
         }
 
         /// <summary>
@@ -204,6 +214,16 @@ namespace Dreamine.MVVM.Generators
                     candidate.MethodSymbol.ContainingType.ToDisplayString()));
             }
 
+            if (!string.IsNullOrWhiteSpace(candidate.CanExecuteMethod) &&
+                !HasValidCanExecuteMethod(candidate.MethodSymbol.ContainingType, candidate.CanExecuteMethod!))
+            {
+                diagnostics.Add(Diagnostic.Create(
+                    CanExecuteMethodNotFoundDescriptor,
+                    candidate.MethodSyntax.Identifier.GetLocation(),
+                    candidate.CanExecuteMethod,
+                    candidate.MethodSymbol.ContainingType.ToDisplayString()));
+            }
+
             return diagnostics;
         }
 
@@ -257,6 +277,15 @@ namespace Dreamine.MVVM.Generators
         private static bool HasConflictingMember(INamedTypeSymbol typeSymbol, string memberName)
         {
             return typeSymbol.GetMembers(memberName).Any();
+        }
+
+        private static bool HasValidCanExecuteMethod(INamedTypeSymbol typeSymbol, string methodName)
+        {
+            return typeSymbol.GetMembers(methodName)
+                .OfType<IMethodSymbol>()
+                .Any(m => m.Parameters.Length == 0 &&
+                          !m.ReturnsVoid &&
+                          m.ReturnType.SpecialType == SpecialType.System_Boolean);
         }
 
         /// <summary>
@@ -337,7 +366,10 @@ namespace Dreamine.MVVM.Generators
             builder.AppendLine(memberIndent + "/// 생성된 ICommand 프로퍼티입니다.");
             builder.AppendLine(memberIndent + "/// </summary>");
             builder.AppendLine(memberIndent + "private ICommand? " + commandFieldName + ";");
-            builder.AppendLine(memberIndent + "public ICommand " + candidate.CommandPropertyName + " => " + commandFieldName + " ??= new " + helperTypeName + "(" + candidate.MethodSymbol.Name + ");");
+            string ctorArgs = !string.IsNullOrWhiteSpace(candidate.CanExecuteMethod)
+                ? candidate.MethodSymbol.Name + ", " + candidate.CanExecuteMethod
+                : candidate.MethodSymbol.Name;
+            builder.AppendLine(memberIndent + "public ICommand " + candidate.CommandPropertyName + " => " + commandFieldName + " ??= new " + helperTypeName + "(" + ctorArgs + ");");
             builder.AppendLine();
 
             bool hasBody = candidate.MethodSyntax.Body is not null || candidate.MethodSyntax.ExpressionBody is not null;
@@ -360,19 +392,39 @@ namespace Dreamine.MVVM.Generators
                 builder.AppendLine();
             }
 
+            bool hasCanExecute = !string.IsNullOrWhiteSpace(candidate.CanExecuteMethod);
+
             builder.AppendLine(memberIndent + "private sealed class " + helperTypeName + " : ICommand");
             builder.AppendLine(memberIndent + "{");
             builder.AppendLine(memberIndent + "    private readonly Action _execute;");
-            builder.AppendLine(memberIndent + "    public " + helperTypeName + "(Action execute)");
-            builder.AppendLine(memberIndent + "    {");
-            builder.AppendLine(memberIndent + "        _execute = execute ?? throw new ArgumentNullException(nameof(execute));");
-            builder.AppendLine(memberIndent + "    }");
-            builder.AppendLine(memberIndent + "    public event EventHandler? CanExecuteChanged");
-            builder.AppendLine(memberIndent + "    {");
-            builder.AppendLine(memberIndent + "        add { }");
-            builder.AppendLine(memberIndent + "        remove { }");
-            builder.AppendLine(memberIndent + "    }");
-            builder.AppendLine(memberIndent + "    public bool CanExecute(object? parameter) => true;");
+            if (hasCanExecute)
+            {
+                builder.AppendLine(memberIndent + "    private readonly Func<bool> _canExecute;");
+                builder.AppendLine(memberIndent + "    public " + helperTypeName + "(Action execute, Func<bool> canExecute)");
+                builder.AppendLine(memberIndent + "    {");
+                builder.AppendLine(memberIndent + "        _execute = execute ?? throw new ArgumentNullException(nameof(execute));");
+                builder.AppendLine(memberIndent + "        _canExecute = canExecute ?? throw new ArgumentNullException(nameof(canExecute));");
+                builder.AppendLine(memberIndent + "    }");
+            }
+            else
+            {
+                builder.AppendLine(memberIndent + "    public " + helperTypeName + "(Action execute)");
+                builder.AppendLine(memberIndent + "    {");
+                builder.AppendLine(memberIndent + "        _execute = execute ?? throw new ArgumentNullException(nameof(execute));");
+                builder.AppendLine(memberIndent + "    }");
+            }
+
+            builder.AppendLine(memberIndent + "    public event EventHandler? CanExecuteChanged;");
+            builder.AppendLine(memberIndent + "    public void RaiseCanExecuteChanged() => CanExecuteChanged?.Invoke(this, EventArgs.Empty);");
+            if (hasCanExecute)
+            {
+                builder.AppendLine(memberIndent + "    public bool CanExecute(object? parameter) => _canExecute();");
+            }
+            else
+            {
+                builder.AppendLine(memberIndent + "    public bool CanExecute(object? parameter) => true;");
+            }
+
             builder.AppendLine(memberIndent + "    public void Execute(object? parameter) => _execute();");
             builder.AppendLine(memberIndent + "}");
             builder.AppendLine();
@@ -555,13 +607,15 @@ namespace Dreamine.MVVM.Generators
                 IMethodSymbol methodSymbol,
                 string? targetMethod,
                 string? bindTo,
-                string commandPropertyName)
+                string commandPropertyName,
+                string? canExecuteMethod = null)
             {
                 MethodSyntax = methodSyntax;
                 MethodSymbol = methodSymbol;
                 TargetMethod = targetMethod;
                 BindTo = bindTo;
                 CommandPropertyName = commandPropertyName;
+                CanExecuteMethod = canExecuteMethod;
             }
 
             /// <summary>
@@ -588,6 +642,11 @@ namespace Dreamine.MVVM.Generators
             /// 생성할 커맨드 프로퍼티 이름을 가져옵니다.
             /// </summary>
             public string CommandPropertyName { get; }
+
+            /// <summary>
+            /// CanExecute 판단 메서드 이름을 가져옵니다.
+            /// </summary>
+            public string? CanExecuteMethod { get; }
         }
     }
 }
