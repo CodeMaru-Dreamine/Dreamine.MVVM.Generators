@@ -56,7 +56,7 @@ namespace Dreamine.MVVM.Generators
             title: "CanExecute method not found",
             messageFormat: "CanExecute method '{0}' specified on [DreamineCommand] was not found in type '{1}'. The method must be a parameterless bool method.",
             category: "Dreamine.MVVM.Generators",
-            defaultSeverity: DiagnosticSeverity.Error,
+            defaultSeverity: DiagnosticSeverity.Warning,
             isEnabledByDefault: true);
 
         /// <summary>
